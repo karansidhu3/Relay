@@ -27,6 +27,13 @@ Parameters:
     Type: String
     Default: prod
     AllowedValues: [prod, staging]
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Email address for DLQ and operational alerts (leave blank to skip subscription)
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Resources:
 
@@ -181,6 +188,8 @@ Resources:
             TableName: !Ref ExecutionsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditTable
+        - S3ReadPolicy:
+            BucketName: !Ref PayloadBucket
         - S3WritePolicy:
             BucketName: !Ref SnapshotsBucket
       Events:
@@ -258,7 +267,7 @@ Resources:
       CodeUri: ../packages/relay-api/
       Description: Serves dashboard and project read API
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
         - DynamoDBReadPolicy:
             TableName: !Ref ExecutionsTable
@@ -268,6 +277,8 @@ Resources:
             TableName: !Ref ProjectsTable
         - S3ReadPolicy:
             BucketName: !Ref PayloadBucket
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MainQueue.QueueName
       Events:
         GetEvents:
           Type: Api
@@ -512,6 +523,40 @@ Resources:
           - Id: expire-snapshots
             Status: Enabled
             ExpirationInDays: 14
+
+  # ── Alerts ───────────────────────────────────────────────────────────────────
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: relay-alerts
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+      TopicArn: !Ref AlertsTopic
+
+  DlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: relay-dlq-has-messages
+      AlarmDescription: Dead-letter queue has unprocessed messages — events have exhausted all retry attempts
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+      OKActions: [!Ref AlertsTopic]
 
 # ── Outputs ────────────────────────────────────────────────────────────────────
 

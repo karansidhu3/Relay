@@ -5,7 +5,7 @@ const s3Client = new S3Client({ region: process.env.AWS_REGION ?? 'us-east-1' })
 export async function putPayload(
   bucket: string,
   key: string,
-  payload: Record<string, unknown>,
+  payload: unknown,
 ): Promise<void> {
   await s3Client.send(
     new PutObjectCommand({

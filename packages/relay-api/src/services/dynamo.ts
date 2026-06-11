@@ -288,6 +288,22 @@ export async function getWorkflow(
   return (result.Item as RelayWorkflow) ?? null;
 }
 
+export async function getDlqEvents(limit = 100): Promise<RelayEvent[]> {
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const result = await dynamoClient.send(
+    new QueryCommand({
+      TableName: config.eventsTable,
+      IndexName: 'status-updated-index',
+      KeyConditionExpression: '#status = :status AND updated_at > :since',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: { ':status': 'DEAD_LETTERED', ':since': since },
+      ScanIndexForward: false,
+      Limit: limit,
+    }),
+  );
+  return (result.Items ?? []) as RelayEvent[];
+}
+
 // ── Dashboard overview ────────────────────────────────────────────────────────
 
 export interface OverviewStats {

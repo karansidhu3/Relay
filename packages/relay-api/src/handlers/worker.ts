@@ -42,15 +42,19 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   for (const record of event.Records) {
     const messageId = record.messageId;
     const receiptHandle = record.receiptHandle;
-    const attempt = parseInt(record.attributes.ApproximateReceiveCount, 10);
 
     let eventId = 'unknown';
+    let attempt = 1;
 
     try {
       // ── 1. Parse SQS message ────────────────────────────────────────────────
       const message = JSON.parse(record.body) as RelaySQSMessage;
       eventId = message.event_id;
       const { event_type: eventType, project_id: projectId } = message;
+      // Use the attempt encoded in the message body rather than SQS's ApproximateReceiveCount.
+      // ApproximateReceiveCount resets to 1 for requeued messages, which would collide with
+      // existing execution records from the original submission.
+      attempt = message.attempt;
 
       logger.info('Execution started', { event_id: eventId, event_type: eventType, attempt });
 
@@ -226,7 +230,10 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
 
       if (isRetryable) {
         // Change visibility timeout to implement exponential backoff between SQS retries.
-        const delayMs = calculateBackoffDelay(attempt, DEFAULT_RETRY_CONFIG);
+        // Use SQS's ApproximateReceiveCount for the backoff calculation — it reflects
+        // how many times SQS has actually delivered this message, regardless of requeue history.
+        const receiveCount = parseInt(record.attributes.ApproximateReceiveCount, 10);
+        const delayMs = calculateBackoffDelay(receiveCount, DEFAULT_RETRY_CONFIG);
         try {
           await changeMessageVisibility(
             receiptHandle,

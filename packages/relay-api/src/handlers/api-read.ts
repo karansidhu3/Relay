@@ -2,12 +2,17 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { logger } from '../lib/logger';
 import { errorResponse, successResponse } from '../lib/response';
 import {
+  getEvent,
   queryEventsByProject,
   getEventWithExecutions,
   getDashboardOverview,
+  getDlqEvents,
+  updateEventStatus,
 } from '../services/dynamo';
+import { publishToMainQueue } from '../services/sqs';
 import type { QueryEventsOptions } from '../services/dynamo';
-import type { EventStatus } from '../types/relay';
+import { EVENT_STATUS } from '../types/relay';
+import type { EventStatus, RelaySQSMessage } from '../types/relay';
 
 export const handler = async (
   event: APIGatewayProxyEvent,
@@ -24,13 +29,23 @@ export const handler = async (
     }
 
     // GET /events/{event_id}
-    if (httpMethod === 'GET' && pathParameters?.event_id) {
+    if (httpMethod === 'GET' && pathParameters?.event_id && path.includes('/events/')) {
       return handleGetEvent(pathParameters.event_id, requestId);
     }
 
     // GET /dashboard/overview
-    if (httpMethod === 'GET' && (path === '/dashboard/overview' || path === '/prod/dashboard/overview')) {
+    if (httpMethod === 'GET' && path.endsWith('/dashboard/overview')) {
       return handleGetDashboardOverview(requestId);
+    }
+
+    // GET /dashboard/dlq
+    if (httpMethod === 'GET' && path.endsWith('/dashboard/dlq')) {
+      return handleGetDlq(requestId);
+    }
+
+    // POST /dashboard/dlq/{event_id}/requeue
+    if (httpMethod === 'POST' && path.endsWith('/requeue') && pathParameters?.event_id) {
+      return handleRequeue(pathParameters.event_id, requestId);
     }
 
     return errorResponse(404, 'NOT_FOUND', `Route not found: ${httpMethod} ${path}`, requestId);
@@ -54,7 +69,6 @@ async function handleGetEvents(
   }
 
   const options: QueryEventsOptions = {};
-
   if (qs['status']) options.status = qs['status'] as EventStatus;
   if (qs['since']) options.since = qs['since'];
   if (qs['until']) options.until = qs['until'];
@@ -94,4 +108,46 @@ async function handleGetDashboardOverview(requestId: string): Promise<APIGateway
   logger.info('GET /dashboard/overview completed', { total_events: overview.total_events, requestId });
 
   return successResponse(200, overview, requestId);
+}
+
+async function handleGetDlq(requestId: string): Promise<APIGatewayProxyResult> {
+  const events = await getDlqEvents();
+
+  logger.info('GET /dashboard/dlq completed', { count: events.length, requestId });
+
+  return successResponse(200, { events, count: events.length }, requestId);
+}
+
+async function handleRequeue(eventId: string, requestId: string): Promise<APIGatewayProxyResult> {
+  const relayEvent = await getEvent(eventId);
+
+  if (!relayEvent) {
+    return errorResponse(404, 'NOT_FOUND', `Event '${eventId}' not found`, requestId);
+  }
+
+  if (relayEvent.status !== EVENT_STATUS.DEAD_LETTERED) {
+    return errorResponse(
+      409,
+      'INVALID_STATE',
+      `Event is not DEAD_LETTERED (current: ${relayEvent.status})`,
+      requestId,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const sqsMessage: RelaySQSMessage = {
+    event_id: eventId,
+    event_type: relayEvent.event_type,
+    project_id: relayEvent.project_id,
+    // Continue from where retries left off so execution records don't collide with previous attempts.
+    attempt: relayEvent.attempt_count + 1,
+    enqueued_at: now,
+  };
+
+  await publishToMainQueue(sqsMessage);
+  await updateEventStatus(eventId, EVENT_STATUS.QUEUED);
+
+  logger.info('Dead-lettered event requeued', { event_id: eventId, event_type: relayEvent.event_type, requestId });
+
+  return successResponse(200, { event_id: eventId, status: EVENT_STATUS.QUEUED, requeued_at: now }, requestId);
 }
