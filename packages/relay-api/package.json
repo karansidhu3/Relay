@@ -11,10 +11,13 @@
     "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@aws-sdk/client-sqs": "^3.600.0",
     "@aws-sdk/client-s3": "^3.600.0",
+    "bcryptjs": "^2.4.3",
+    "esbuild": "^0.21.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.143",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.0.0",
     "@types/uuid": "^9.0.0",
     "typescript": "^5.4.0"

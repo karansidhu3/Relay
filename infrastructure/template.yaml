@@ -2,18 +2,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Relay — Serverless event orchestration platform
 
-# Phase 2: Full resource definitions added here.
-# This scaffold defines the structure; implementations come in Phase 2.
-
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs22.x
     Architectures: [arm64]
     MemorySize: 256
     Timeout: 30
     Environment:
       Variables:
-        AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+        NODE_OPTIONS: --enable-source-maps
         EVENTS_TABLE: !Ref EventsTable
         EXECUTIONS_TABLE: !Ref ExecutionsTable
         WORKFLOWS_TABLE: !Ref WorkflowsTable
@@ -31,85 +28,336 @@ Parameters:
     Default: prod
     AllowedValues: [prod, staging]
 
-# ── Lambda Functions ────────────────────────────────────────────────────────
-
 Resources:
 
-  IngestFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: relay-ingest
-      Handler: handlers/ingest.handler
-      CodeUri: ../packages/relay-api/dist/
-      Description: Validates and queues incoming events
-      # Phase 2: IAM role, event source, policies
-
-  WorkerFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: relay-worker
-      Handler: handlers/worker.handler
-      CodeUri: ../packages/relay-api/dist/
-      Timeout: 60
-      Description: Processes events from SQS and executes workflow handlers
-      # Phase 2: SQS event source mapping, IAM role
-
-  DlqHandlerFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: relay-dlq-handler
-      Handler: handlers/dlq-handler.handler
-      CodeUri: ../packages/relay-api/dist/
-      Description: Handles dead-lettered events and writes failure snapshots
-      # Phase 2: DLQ event source mapping, IAM role
-
-  SchedulerFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: relay-scheduler
-      Handler: handlers/scheduler.handler
-      CodeUri: ../packages/relay-api/dist/
-      Description: Triggers scheduled workflow events via EventBridge
-      # Phase 2: EventBridge schedule rule
-
-  ApiReadFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: relay-api-read
-      Handler: handlers/api-read.handler
-      CodeUri: ../packages/relay-api/dist/
-      Description: Serves dashboard read API (events, executions, overview)
-      # Phase 2: API Gateway routes
-
-# ── API Gateway ─────────────────────────────────────────────────────────────
+  # ── API Gateway ──────────────────────────────────────────────────────────────
 
   RelayApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: relay-api
       StageName: !Ref Environment
-      # Phase 2: full route definitions, CORS config, throttling
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,x-relay-api-key,x-relay-project-id'"
+        AllowOrigin: "'*'"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingBurstLimit: 1000
+          ThrottlingRateLimit: 500
 
-# ── SQS Queues ──────────────────────────────────────────────────────────────
+  # ── Lambda: Ingest ───────────────────────────────────────────────────────────
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-ingest
+      Handler: src/handlers/ingest.handler
+      CodeUri: ../packages/relay-api/
+      Description: Validates incoming events, writes to DynamoDB, publishes to SQS
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProjectsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MainQueue.QueueName
+        - S3WritePolicy:
+            BucketName: !Ref PayloadBucket
+      Events:
+        PostEvents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /events
+            Method: POST
+        PostBatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /events/batch
+            Method: POST
+        PostWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /webhooks/{project_id}/{source}
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/ingest.ts
+        External:
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-s3'
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${IngestFunction}
+      RetentionInDays: 30
+
+  # ── Lambda: Worker ───────────────────────────────────────────────────────────
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-worker
+      Handler: src/handlers/worker.handler
+      CodeUri: ../packages/relay-api/
+      Timeout: 60
+      Description: Consumes SQS messages and executes workflow handlers
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExecutionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkflowsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditTable
+        - S3CrudPolicy:
+            BucketName: !Ref PayloadBucket
+        - S3WritePolicy:
+            BucketName: !Ref ArtifactsBucket
+        - Statement:
+            - Effect: Allow
+              Action: sqs:ChangeMessageVisibility
+              Resource: !GetAtt MainQueue.Arn
+      Events:
+        MainQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt MainQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/worker.ts
+        External:
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-s3'
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${WorkerFunction}
+      RetentionInDays: 30
+
+  # ── Lambda: DLQ Handler ──────────────────────────────────────────────────────
+
+  DlqHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-dlq-handler
+      Handler: src/handlers/dlq-handler.handler
+      CodeUri: ../packages/relay-api/
+      Description: Processes dead-lettered events and writes S3 failure snapshots
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExecutionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditTable
+        - S3WritePolicy:
+            BucketName: !Ref SnapshotsBucket
+      Events:
+        DLQEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DeadLetterQueue.Arn
+            BatchSize: 1
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/dlq-handler.ts
+        External:
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-s3'
+
+  DlqHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${DlqHandlerFunction}
+      RetentionInDays: 30
+
+  # ── Lambda: Scheduler ────────────────────────────────────────────────────────
+
+  SchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-scheduler
+      Handler: src/handlers/scheduler.handler
+      CodeUri: ../packages/relay-api/
+      Description: Triggers scheduled workflow events via EventBridge
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkflowsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt MainQueue.QueueName
+      # EventBridge schedule rule added in Phase 3
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/scheduler.ts
+        External:
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-s3'
+
+  SchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SchedulerFunction}
+      RetentionInDays: 30
+
+  # ── Lambda: API Read ─────────────────────────────────────────────────────────
+
+  ApiReadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-api-read
+      Handler: src/handlers/api-read.handler
+      CodeUri: ../packages/relay-api/
+      Description: Serves dashboard and project read API
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref EventsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ExecutionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref WorkflowsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProjectsTable
+        - S3ReadPolicy:
+            BucketName: !Ref PayloadBucket
+      Events:
+        GetEvents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /events
+            Method: GET
+        GetEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /events/{event_id}
+            Method: GET
+        DashboardOverview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/overview
+            Method: GET
+        DashboardEvents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/events
+            Method: GET
+        DashboardExecutions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/executions/{execution_id}
+            Method: GET
+        DashboardProjects:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/projects
+            Method: GET
+        DashboardDlq:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/dlq
+            Method: GET
+        RequeueDlq:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /dashboard/dlq/{event_id}/requeue
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: false
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/api-read.ts
+        External:
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-s3'
+
+  ApiReadLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ApiReadFunction}
+      RetentionInDays: 30
+
+  # ── SQS Queues ───────────────────────────────────────────────────────────────
 
   DeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: relay-dlq
-      MessageRetentionPeriod: 1209600  # 14 days
-      # Phase 2: CloudWatch alarm for depth > 0
+      MessageRetentionPeriod: 1209600
 
   MainQueue:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: relay-main-queue
-      VisibilityTimeout: 30
-      MessageRetentionPeriod: 345600  # 4 days
+      VisibilityTimeout: 90
+      MessageRetentionPeriod: 345600
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 3
 
-# ── DynamoDB Tables ─────────────────────────────────────────────────────────
+  # ── DynamoDB Tables ──────────────────────────────────────────────────────────
 
   EventsTable:
     Type: AWS::DynamoDB::Table
@@ -218,7 +466,7 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
-# ── S3 Buckets ──────────────────────────────────────────────────────────────
+  # ── S3 Buckets ───────────────────────────────────────────────────────────────
 
   PayloadBucket:
     Type: AWS::S3::Bucket
@@ -265,41 +513,45 @@ Resources:
             Status: Enabled
             ExpirationInDays: 14
 
-# ── CloudWatch Log Groups ────────────────────────────────────────────────────
-
-  IngestLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /relay/ingest
-      RetentionInDays: 30
-
-  WorkerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /relay/worker
-      RetentionInDays: 30
-
-  DlqHandlerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /relay/dlq-handler
-      RetentionInDays: 30
-
-  SchedulerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /relay/scheduler
-      RetentionInDays: 30
-
-# ── Outputs ──────────────────────────────────────────────────────────────────
+# ── Outputs ────────────────────────────────────────────────────────────────────
 
 Outputs:
   ApiUrl:
     Description: API Gateway endpoint URL
     Value: !Sub https://${RelayApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: relay-api-url
   MainQueueUrl:
     Description: Main SQS queue URL
     Value: !Ref MainQueue
+    Export:
+      Name: relay-main-queue-url
   DlqUrl:
     Description: Dead-letter queue URL
     Value: !Ref DeadLetterQueue
+    Export:
+      Name: relay-dlq-url
+  EventsTableName:
+    Description: relay-events DynamoDB table name
+    Value: !Ref EventsTable
+  ExecutionsTableName:
+    Description: relay-executions DynamoDB table name
+    Value: !Ref ExecutionsTable
+  WorkflowsTableName:
+    Description: relay-workflows DynamoDB table name
+    Value: !Ref WorkflowsTable
+  ProjectsTableName:
+    Description: relay-projects DynamoDB table name
+    Value: !Ref ProjectsTable
+  AuditTableName:
+    Description: relay-audit DynamoDB table name
+    Value: !Ref AuditTable
+  PayloadBucketName:
+    Description: S3 bucket for event payloads
+    Value: !Ref PayloadBucket
+  ArtifactsBucketName:
+    Description: S3 bucket for execution artifacts
+    Value: !Ref ArtifactsBucket
+  SnapshotsBucketName:
+    Description: S3 bucket for DLQ failure snapshots
+    Value: !Ref SnapshotsBucket

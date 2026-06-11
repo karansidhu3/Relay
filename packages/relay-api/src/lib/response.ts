@@ -1,7 +1,12 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import type { ApiSuccessResponse, ApiErrorResponse } from '../types/relay';
 
-const HEADERS = { 'Content-Type': 'application/json' };
+const HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization,x-relay-api-key,x-relay-project-id',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+};
 
 function buildMeta(requestId: string): { request_id: string; timestamp: string } {
   return { request_id: requestId, timestamp: new Date().toISOString() };
