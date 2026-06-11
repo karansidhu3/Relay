@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Relay — Serverless event orchestration platform
+
+# Phase 2: Full resource definitions added here.
+# This scaffold defines the structure; implementations come in Phase 2.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 30
+    Environment:
+      Variables:
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+        EVENTS_TABLE: !Ref EventsTable
+        EXECUTIONS_TABLE: !Ref ExecutionsTable
+        WORKFLOWS_TABLE: !Ref WorkflowsTable
+        PROJECTS_TABLE: !Ref ProjectsTable
+        AUDIT_TABLE: !Ref AuditTable
+        MAIN_QUEUE_URL: !Ref MainQueue
+        DLQ_URL: !Ref DeadLetterQueue
+        PAYLOAD_BUCKET: !Ref PayloadBucket
+        ARTIFACTS_BUCKET: !Ref ArtifactsBucket
+        SNAPSHOTS_BUCKET: !Ref SnapshotsBucket
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging]
+
+# ── Lambda Functions ────────────────────────────────────────────────────────
+
+Resources:
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-ingest
+      Handler: handlers/ingest.handler
+      CodeUri: ../packages/relay-api/dist/
+      Description: Validates and queues incoming events
+      # Phase 2: IAM role, event source, policies
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-worker
+      Handler: handlers/worker.handler
+      CodeUri: ../packages/relay-api/dist/
+      Timeout: 60
+      Description: Processes events from SQS and executes workflow handlers
+      # Phase 2: SQS event source mapping, IAM role
+
+  DlqHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-dlq-handler
+      Handler: handlers/dlq-handler.handler
+      CodeUri: ../packages/relay-api/dist/
+      Description: Handles dead-lettered events and writes failure snapshots
+      # Phase 2: DLQ event source mapping, IAM role
+
+  SchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-scheduler
+      Handler: handlers/scheduler.handler
+      CodeUri: ../packages/relay-api/dist/
+      Description: Triggers scheduled workflow events via EventBridge
+      # Phase 2: EventBridge schedule rule
+
+  ApiReadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: relay-api-read
+      Handler: handlers/api-read.handler
+      CodeUri: ../packages/relay-api/dist/
+      Description: Serves dashboard read API (events, executions, overview)
+      # Phase 2: API Gateway routes
+
+# ── API Gateway ─────────────────────────────────────────────────────────────
+
+  RelayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: relay-api
+      StageName: !Ref Environment
+      # Phase 2: full route definitions, CORS config, throttling
+
+# ── SQS Queues ──────────────────────────────────────────────────────────────
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: relay-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+      # Phase 2: CloudWatch alarm for depth > 0
+
+  MainQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: relay-main-queue
+      VisibilityTimeout: 30
+      MessageRetentionPeriod: 345600  # 4 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+# ── DynamoDB Tables ─────────────────────────────────────────────────────────
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: relay-events
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - { AttributeName: event_id, AttributeType: S }
+        - { AttributeName: project_id, AttributeType: S }
+        - { AttributeName: status, AttributeType: S }
+        - { AttributeName: event_type, AttributeType: S }
+        - { AttributeName: created_at, AttributeType: S }
+        - { AttributeName: updated_at, AttributeType: S }
+      KeySchema:
+        - { AttributeName: event_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: project-created-index
+          KeySchema:
+            - { AttributeName: project_id, KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: status-updated-index
+          KeySchema:
+            - { AttributeName: status, KeyType: HASH }
+            - { AttributeName: updated_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: type-created-index
+          KeySchema:
+            - { AttributeName: event_type, KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ExecutionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: relay-executions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: event_id, AttributeType: S }
+        - { AttributeName: attempt, AttributeType: N }
+        - { AttributeName: execution_id, AttributeType: S }
+        - { AttributeName: project_id, AttributeType: S }
+        - { AttributeName: status, AttributeType: S }
+        - { AttributeName: started_at, AttributeType: S }
+      KeySchema:
+        - { AttributeName: event_id, KeyType: HASH }
+        - { AttributeName: attempt, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: project-status-index
+          KeySchema:
+            - { AttributeName: project_id, KeyType: HASH }
+            - { AttributeName: started_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: status-started-index
+          KeySchema:
+            - { AttributeName: status, KeyType: HASH }
+            - { AttributeName: started_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: execution-id-index
+          KeySchema:
+            - { AttributeName: execution_id, KeyType: HASH }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  WorkflowsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: relay-workflows
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: project_id, AttributeType: S }
+        - { AttributeName: event_type, AttributeType: S }
+      KeySchema:
+        - { AttributeName: project_id, KeyType: HASH }
+        - { AttributeName: event_type, KeyType: RANGE }
+
+  ProjectsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: relay-projects
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: project_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: project_id, KeyType: HASH }
+
+  AuditTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: relay-audit
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: project_id, AttributeType: S }
+        - { AttributeName: sort_key, AttributeType: S }
+      KeySchema:
+        - { AttributeName: project_id, KeyType: HASH }
+        - { AttributeName: sort_key, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+# ── S3 Buckets ──────────────────────────────────────────────────────────────
+
+  PayloadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub relay-payloads-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-payloads
+            Status: Enabled
+            ExpirationInDays: 30
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub relay-artifacts-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-artifacts
+            Status: Enabled
+            ExpirationInDays: 90
+
+  SnapshotsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub relay-snapshots-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-snapshots
+            Status: Enabled
+            ExpirationInDays: 14
+
+# ── CloudWatch Log Groups ────────────────────────────────────────────────────
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /relay/ingest
+      RetentionInDays: 30
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /relay/worker
+      RetentionInDays: 30
+
+  DlqHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /relay/dlq-handler
+      RetentionInDays: 30
+
+  SchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /relay/scheduler
+      RetentionInDays: 30
+
+# ── Outputs ──────────────────────────────────────────────────────────────────
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${RelayApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  MainQueueUrl:
+    Description: Main SQS queue URL
+    Value: !Ref MainQueue
+  DlqUrl:
+    Description: Dead-letter queue URL
+    Value: !Ref DeadLetterQueue

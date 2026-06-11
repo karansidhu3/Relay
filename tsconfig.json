@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/relay-api" },
+    { "path": "./packages/relay-client" }
+  ]
+}
