@@ -49,10 +49,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-5 py-4 border-t border-border-base flex-shrink-0">
-        <span className="text-2xs font-mono text-ink-muted">infrastructure</span>
-      </div>
     </aside>
   );
 }
