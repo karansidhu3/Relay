@@ -1,5 +1,4 @@
 import type { SQSEvent, SQSBatchResponse } from 'aws-lambda';
-import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../lib/logger';
 import { classifyError, truncateStack, WorkflowNotFoundError } from '../lib/errors';
 import { calculateBackoffDelay, shouldRetry, DEFAULT_RETRY_CONFIG } from '../lib/retry';
@@ -107,7 +106,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
       }
 
       // ── 6. Create execution record (RUNNING) ────────────────────────────────
-      const executionId = `exec_${uuidv4().replace(/-/g, '')}`;
+      const executionId = `exec_${crypto.randomUUID().replace(/-/g, '')}`;
       const startedAt = new Date().toISOString();
       const retryDelayMs =
         attempt > 1

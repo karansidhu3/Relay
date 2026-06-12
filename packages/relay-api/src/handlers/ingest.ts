@@ -1,6 +1,5 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import * as bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../lib/logger';
 import { errorResponse, successResponse } from '../lib/response';
 import { validateEventType, validatePayloadSize, requiresS3Offload, getRequiredEnv } from '../lib/validate';
@@ -117,7 +116,7 @@ export const handler = async (
     }
 
     // ── 7. Generate event ID and route payload ─────────────────────────────────
-    const eventId = `evt_${uuidv4().replace(/-/g, '')}`;
+    const eventId = `evt_${crypto.randomUUID().replace(/-/g, '')}`;
     const now = new Date().toISOString();
     const ttl = Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
 

@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { PageWrapper } from '../../../components/layout/PageWrapper';
 import { StatusPill } from '../../../components/ui/StatusPill';
 import { ExecutionTimeline } from '../../../components/events/ExecutionTimeline';
+import { PayloadViewer } from '../../../components/ui/PayloadViewer';
 import { getEvent } from '../../../lib/api/index';
 import { formatTimestamp, formatDuration } from '../../../lib/utils/format';
 
@@ -95,6 +96,7 @@ export default async function EventDetailPage({ params }: PageProps) {
                   <dd className="text-ink-secondary tabular-nums">
                     {event.payload_size_bytes} bytes
                   </dd>
+                  <PayloadViewer eventId={event.event_id} sizeBytes={event.payload_size_bytes} />
                 </div>
                 {event.idempotency_key && (
                   <div>

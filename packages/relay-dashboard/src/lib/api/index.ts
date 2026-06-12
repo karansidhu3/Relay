@@ -4,6 +4,7 @@ import type {
   EventDetail,
   EventsPage,
   OverviewStats,
+  RelayProjectSafe,
 } from '../../types/relay';
 
 function getBaseUrl(): string {
@@ -55,6 +56,14 @@ export async function getEvent(eventId: string): Promise<EventDetail> {
 
 export async function getDlq(): Promise<DlqResponse> {
   return apiFetch<DlqResponse>('/dashboard/dlq');
+}
+
+export async function getProjects(): Promise<{ projects: RelayProjectSafe[]; count: number }> {
+  return apiFetch<{ projects: RelayProjectSafe[]; count: number }>('/dashboard/projects');
+}
+
+export async function getEventPayload(eventId: string): Promise<{ payload: Record<string, unknown>; source: string; size_bytes: number }> {
+  return apiFetch<{ payload: Record<string, unknown>; source: string; size_bytes: number }>(`/events/${eventId}/payload`);
 }
 
 export async function requeueEvent(eventId: string): Promise<{ event_id: string; status: string; requeued_at: string }> {

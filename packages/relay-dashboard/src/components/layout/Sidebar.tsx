@@ -8,6 +8,8 @@ const NAV_ITEMS = [
   { href: '/', label: 'Overview' },
   { href: '/events', label: 'Events' },
   { href: '/dlq', label: 'Dead Letters' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/analytics', label: 'Analytics' },
 ] as const;
 
 export function Sidebar() {

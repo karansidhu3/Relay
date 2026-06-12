@@ -8,7 +8,10 @@ import {
   getDashboardOverview,
   getDlqEvents,
   updateEventStatus,
+  listProjects,
 } from '../services/dynamo';
+import { getPayload } from '../services/s3';
+import { getRequiredEnv } from '../lib/validate';
 import { publishToMainQueue } from '../services/sqs';
 import type { QueryEventsOptions } from '../services/dynamo';
 import { EVENT_STATUS } from '../types/relay';
@@ -38,6 +41,11 @@ export const handler = async (
       return handleGetDashboardOverview(requestId);
     }
 
+    // GET /dashboard/projects
+    if (httpMethod === 'GET' && path.endsWith('/dashboard/projects')) {
+      return handleGetProjects(requestId);
+    }
+
     // GET /dashboard/dlq
     if (httpMethod === 'GET' && path.endsWith('/dashboard/dlq')) {
       return handleGetDlq(requestId);
@@ -46,6 +54,11 @@ export const handler = async (
     // POST /dashboard/dlq/{event_id}/requeue
     if (httpMethod === 'POST' && path.endsWith('/requeue') && pathParameters?.event_id) {
       return handleRequeue(pathParameters.event_id, requestId);
+    }
+
+    // GET /events/{event_id}/payload
+    if (httpMethod === 'GET' && path.endsWith('/payload') && pathParameters?.event_id) {
+      return handleGetPayload(pathParameters.event_id, requestId);
     }
 
     return errorResponse(404, 'NOT_FOUND', `Route not found: ${httpMethod} ${path}`, requestId);
@@ -116,6 +129,48 @@ async function handleGetDlq(requestId: string): Promise<APIGatewayProxyResult> {
   logger.info('GET /dashboard/dlq completed', { count: events.length, requestId });
 
   return successResponse(200, { events, count: events.length }, requestId);
+}
+
+async function handleGetProjects(requestId: string): Promise<APIGatewayProxyResult> {
+  const projects = await listProjects();
+  const safeProjects = projects.map(({ api_key_hash: _hash, ...rest }) => rest);
+
+  logger.info('GET /dashboard/projects completed', { count: projects.length, requestId });
+
+  return successResponse(200, { projects: safeProjects, count: safeProjects.length }, requestId);
+}
+
+async function handleGetPayload(eventId: string, requestId: string): Promise<APIGatewayProxyResult> {
+  const event = await getEvent(eventId);
+
+  if (!event) {
+    return errorResponse(404, 'NOT_FOUND', `Event '${eventId}' not found`, requestId);
+  }
+
+  const ref = event.payload_ref;
+
+  if (ref.startsWith('inline:')) {
+    const json = ref.slice('inline:'.length);
+    return successResponse(200, {
+      payload: JSON.parse(json) as Record<string, unknown>,
+      source: 'inline',
+      size_bytes: event.payload_size_bytes,
+    }, requestId);
+  }
+
+  if (ref.startsWith('s3:')) {
+    const withoutScheme = ref.slice('s3:'.length);
+    const slashIndex = withoutScheme.indexOf('/');
+    const bucket = withoutScheme.slice(0, slashIndex);
+    const key = withoutScheme.slice(slashIndex + 1);
+    const payload = await getPayload(bucket, key);
+    return successResponse(200, { payload, source: 's3', size_bytes: event.payload_size_bytes }, requestId);
+  }
+
+  // Legacy fallback: try PAYLOAD_BUCKET env var
+  const bucket = getRequiredEnv('PAYLOAD_BUCKET');
+  const payload = await getPayload(bucket, ref);
+  return successResponse(200, { payload, source: 's3', size_bytes: event.payload_size_bytes }, requestId);
 }
 
 async function handleRequeue(eventId: string, requestId: string): Promise<APIGatewayProxyResult> {

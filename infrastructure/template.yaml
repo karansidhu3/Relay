@@ -292,6 +292,12 @@ Resources:
             RestApiId: !Ref RelayApi
             Path: /events/{event_id}
             Method: GET
+        GetEventPayload:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RelayApi
+            Path: /events/{event_id}/payload
+            Method: GET
         DashboardOverview:
           Type: Api
           Properties:

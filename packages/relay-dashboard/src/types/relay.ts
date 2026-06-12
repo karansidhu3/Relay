@@ -44,6 +44,17 @@ export interface RelayExecution {
   retry_delay_ms: number;
 }
 
+export interface ProjectEventCount {
+  project_id: string;
+  name: string;
+  count: number;
+}
+
+export interface TypeEventCount {
+  event_type: string;
+  count: number;
+}
+
 export interface OverviewStats {
   period: string;
   total_events: number;
@@ -53,8 +64,17 @@ export interface OverviewStats {
   processing: number;
   success_rate: number;
   avg_execution_ms: number;
-  events_by_project: unknown[];
-  events_by_type: unknown[];
+  events_by_project: ProjectEventCount[];
+  events_by_type: TypeEventCount[];
+}
+
+export interface RelayProjectSafe {
+  project_id: string;
+  name: string;
+  is_active: boolean;
+  event_types_allowed: string[];
+  created_at: string;
+  rate_limit_per_minute: number;
 }
 
 export interface EventsPage {

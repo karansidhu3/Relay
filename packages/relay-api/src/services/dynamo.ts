@@ -5,6 +5,7 @@ import {
   PutCommand,
   UpdateCommand,
   QueryCommand,
+  ScanCommand,
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { getRequiredEnv } from '../lib/validate';
@@ -58,6 +59,17 @@ function buildUpdateExpression(updates: Record<string, unknown>): {
 }
 
 // ── Project operations ────────────────────────────────────────────────────────
+
+export async function listProjects(): Promise<RelayProject[]> {
+  const result = await dynamoClient.send(
+    new ScanCommand({
+      TableName: config.projectsTable,
+      ProjectionExpression: 'project_id, #name, is_active, event_types_allowed, created_at, rate_limit_per_minute',
+      ExpressionAttributeNames: { '#name': 'name' },
+    }),
+  );
+  return (result.Items ?? []) as RelayProject[];
+}
 
 export async function getProject(projectId: string): Promise<RelayProject | null> {
   const result = await dynamoClient.send(
@@ -306,6 +318,17 @@ export async function getDlqEvents(limit = 100): Promise<RelayEvent[]> {
 
 // ── Dashboard overview ────────────────────────────────────────────────────────
 
+export interface ProjectEventCount {
+  project_id: string;
+  name: string;
+  count: number;
+}
+
+export interface TypeEventCount {
+  event_type: string;
+  count: number;
+}
+
 export interface OverviewStats {
   period: string;
   total_events: number;
@@ -315,8 +338,48 @@ export interface OverviewStats {
   processing: number;
   success_rate: number;
   avg_execution_ms: number;
-  events_by_project: unknown[];
-  events_by_type: unknown[];
+  events_by_project: ProjectEventCount[];
+  events_by_type: TypeEventCount[];
+}
+
+async function countEventsByProject(projectId: string, since: string): Promise<number> {
+  let count = 0;
+  let lastKey: Record<string, unknown> | undefined;
+  do {
+    const result = await dynamoClient.send(
+      new QueryCommand({
+        TableName: config.eventsTable,
+        IndexName: 'project-created-index',
+        KeyConditionExpression: 'project_id = :projectId AND created_at > :since',
+        ExpressionAttributeValues: { ':projectId': projectId, ':since': since },
+        Select: 'COUNT',
+        ExclusiveStartKey: lastKey,
+      }),
+    );
+    count += result.Count ?? 0;
+    lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastKey);
+  return count;
+}
+
+async function countEventsByType(eventType: string, since: string): Promise<number> {
+  let count = 0;
+  let lastKey: Record<string, unknown> | undefined;
+  do {
+    const result = await dynamoClient.send(
+      new QueryCommand({
+        TableName: config.eventsTable,
+        IndexName: 'type-created-index',
+        KeyConditionExpression: 'event_type = :eventType AND created_at > :since',
+        ExpressionAttributeValues: { ':eventType': eventType, ':since': since },
+        Select: 'COUNT',
+        ExclusiveStartKey: lastKey,
+      }),
+    );
+    count += result.Count ?? 0;
+    lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastKey);
+  return count;
 }
 
 async function countEventsByStatus(status: EventStatus, since: string): Promise<number> {
@@ -358,12 +421,13 @@ async function getRecentCompletedExecutions(since: string): Promise<RelayExecuti
 }
 
 export async function getDashboardOverview(since: string): Promise<OverviewStats> {
-  const [completed, failed, deadLettered, processing, executions] = await Promise.all([
+  const [completed, failed, deadLettered, processing, executions, projects] = await Promise.all([
     countEventsByStatus('COMPLETED', since),
     countEventsByStatus('FAILED', since),
     countEventsByStatus('DEAD_LETTERED', since),
     countEventsByStatus('PROCESSING', since),
     getRecentCompletedExecutions(since),
+    listProjects(),
   ]);
 
   const total = completed + failed + deadLettered + processing;
@@ -372,6 +436,24 @@ export async function getDashboardOverview(since: string): Promise<OverviewStats
     executions.length > 0
       ? executions.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0) / executions.length
       : 0;
+
+  // Per-project event counts — small N, parallel queries are fine
+  const projectCounts = await Promise.all(
+    projects.map(async (p) => ({
+      project_id: p.project_id,
+      name: p.name,
+      count: await countEventsByProject(p.project_id, since),
+    })),
+  );
+
+  // Per-event-type counts across all projects
+  const allEventTypes = [...new Set(projects.flatMap((p) => p.event_types_allowed))];
+  const typeCounts = await Promise.all(
+    allEventTypes.map(async (et) => ({
+      event_type: et,
+      count: await countEventsByType(et, since),
+    })),
+  );
 
   return {
     period: '24h',
@@ -382,7 +464,7 @@ export async function getDashboardOverview(since: string): Promise<OverviewStats
     processing,
     success_rate: Math.round(successRate * 1000) / 1000,
     avg_execution_ms: Math.round(avgDuration),
-    events_by_project: [],
-    events_by_type: [],
+    events_by_project: projectCounts.sort((a, b) => b.count - a.count),
+    events_by_type: typeCounts.filter((t) => t.count > 0).sort((a, b) => b.count - a.count),
   };
 }
