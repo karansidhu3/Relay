@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${dmMono.variable}`}>
-      <body className="font-sans bg-bg-root dot-grid min-h-screen antialiased">
+      <body className="font-sans bg-bg-root dot-grid min-h-screen antialiased text-ink-primary">
         <div className="flex min-h-screen">
           <Sidebar />
           <main className="flex-1 min-w-0 ml-[220px]">

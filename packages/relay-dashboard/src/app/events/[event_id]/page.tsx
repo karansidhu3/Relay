@@ -33,19 +33,19 @@ export default async function EventDetailPage({ params }: PageProps) {
     <PageWrapper>
       <div className="space-y-6">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs font-mono text-ink-secondary">
-          <Link href="/events" className="hover:text-cyan-accent transition-colors">
+        <div className="flex items-center gap-2 text-xs font-mono text-ink-muted">
+          <Link href="/events" className="hover:text-amber-accent transition-colors">
             Events
           </Link>
           <span>›</span>
-          <span className="text-ink-primary">{event.event_id}</span>
+          <span className="text-ink-secondary">{event.event_id}</span>
         </div>
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-lg font-mono font-medium text-ink-primary">
+            <div className="flex items-center gap-3 mb-1.5">
+              <h1 className="text-xl font-sans font-semibold text-ink-primary tracking-tight">
                 {event.event_type}
               </h1>
               <StatusPill status={event.status} />
@@ -54,8 +54,8 @@ export default async function EventDetailPage({ params }: PageProps) {
           </div>
           {totalDuration && (
             <div className="text-right flex-shrink-0">
-              <div className="text-xs font-mono text-ink-secondary">Duration</div>
-              <div className="text-sm font-mono text-ink-primary">{totalDuration}</div>
+              <div className="text-2xs font-mono text-ink-muted uppercase tracking-widest mb-0.5">Duration</div>
+              <div className="text-sm font-mono text-ink-primary tabular-nums">{totalDuration}</div>
             </div>
           )}
         </div>
@@ -64,7 +64,7 @@ export default async function EventDetailPage({ params }: PageProps) {
           {/* Left: metadata */}
           <div className="col-span-1 space-y-4">
             <div className="bg-bg-surface border border-border-base rounded-lg p-5">
-              <h2 className="text-xs font-mono text-ink-secondary uppercase tracking-widest mb-4">
+              <h2 className="text-2xs font-mono text-ink-muted uppercase tracking-widest mb-4">
                 Event Details
               </h2>
               <dl className="space-y-3 text-xs font-mono">
@@ -74,25 +74,25 @@ export default async function EventDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <dt className="text-ink-muted mb-0.5">Created</dt>
-                  <dd className="text-ink-primary">{formatTimestamp(event.created_at)}</dd>
+                  <dd className="text-ink-secondary">{formatTimestamp(event.created_at)}</dd>
                 </div>
                 <div>
                   <dt className="text-ink-muted mb-0.5">Updated</dt>
-                  <dd className="text-ink-primary">{formatTimestamp(event.updated_at)}</dd>
+                  <dd className="text-ink-secondary">{formatTimestamp(event.updated_at)}</dd>
                 </div>
                 {event.completed_at && (
                   <div>
                     <dt className="text-ink-muted mb-0.5">Completed</dt>
-                    <dd className="text-ink-primary">{formatTimestamp(event.completed_at)}</dd>
+                    <dd className="text-ink-secondary">{formatTimestamp(event.completed_at)}</dd>
                   </div>
                 )}
                 <div>
                   <dt className="text-ink-muted mb-0.5">Attempts</dt>
-                  <dd className="text-ink-primary">{event.attempt_count}</dd>
+                  <dd className="text-ink-primary tabular-nums">{event.attempt_count}</dd>
                 </div>
                 <div>
                   <dt className="text-ink-muted mb-0.5">Payload</dt>
-                  <dd className="text-ink-secondary">
+                  <dd className="text-ink-secondary tabular-nums">
                     {event.payload_size_bytes} bytes
                   </dd>
                 </div>
@@ -109,7 +109,7 @@ export default async function EventDetailPage({ params }: PageProps) {
           {/* Right: execution timeline */}
           <div className="col-span-2">
             <div className="bg-bg-surface border border-border-base rounded-lg p-5">
-              <h2 className="text-xs font-mono text-ink-secondary uppercase tracking-widest mb-5">
+              <h2 className="text-2xs font-mono text-ink-muted uppercase tracking-widest mb-5">
                 Execution Timeline
               </h2>
               <ExecutionTimeline executions={executions} />

@@ -41,7 +41,7 @@ export function EventsTable() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-bg-surface border border-border-base text-ink-primary text-xs font-mono rounded px-2 py-1.5 focus:outline-none focus:border-cyan-accent/60 transition-colors"
+          className="bg-bg-surface border border-border-base text-ink-primary text-xs font-mono rounded px-2 py-1.5 focus:outline-none focus:border-amber-accent/50 transition-colors"
         >
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>
@@ -103,7 +103,7 @@ export function EventsTable() {
                 <td className="px-4 py-3">
                   <Link
                     href={`/events/${ev.event_id}`}
-                    className="text-ink-primary hover:text-cyan-accent transition-colors"
+                    className="text-ink-secondary hover:text-amber-accent transition-colors"
                   >
                     {shortenEventId(ev.event_id)}
                   </Link>

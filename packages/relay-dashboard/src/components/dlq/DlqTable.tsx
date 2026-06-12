@@ -108,7 +108,7 @@ export function DlqTable({ events }: DlqTableProps) {
                 <td className="px-4 py-3.5">
                   <Link
                     href={`/events/${ev.event_id}`}
-                    className="text-ink-primary hover:text-cyan-accent transition-colors"
+                    className="text-ink-secondary hover:text-amber-accent transition-colors"
                   >
                     {shortenEventId(ev.event_id)}
                   </Link>

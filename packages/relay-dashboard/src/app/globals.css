@@ -8,41 +8,51 @@
 
 html,
 body {
-  background-color: #060810;
-  color: #e2e8f0;
+  background-color: #131210;
+  color: #f2ede6;
 }
 
-/* Dot grid on the root background only */
+/* Warm dot grid — barely perceptible amber tint on root */
 .dot-grid {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: radial-gradient(rgba(201, 146, 74, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-/* Skeleton pulse */
+/* Skeleton shimmer — warm */
 @keyframes shimmer {
-  0% { opacity: 0.4; }
-  50% { opacity: 0.7; }
-  100% { opacity: 0.4; }
+  0%   { opacity: 0.35; }
+  50%  { opacity: 0.6; }
+  100% { opacity: 0.35; }
 }
 
 .skeleton {
-  animation: shimmer 1.8s ease-in-out infinite;
-  background-color: #1a2035;
+  animation: shimmer 2s ease-in-out infinite;
+  background-color: #251f18;
   border-radius: 4px;
+}
+
+/* Gauge needle animation — settles from 0 to target on load */
+@keyframes gauge-settle {
+  from { left: 0%; }
+  to   { left: var(--gauge-target, 0%); }
+}
+
+.gauge-needle {
+  animation: gauge-settle 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.4s both;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1a2035;
+  background: #2a2520;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #263050;
+  background: #3a3028;
 }

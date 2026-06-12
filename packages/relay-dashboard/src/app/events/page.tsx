@@ -6,9 +6,9 @@ export default function EventsPage() {
     <PageWrapper>
       <div className="space-y-6">
         <div>
-          <h1 className="text-lg font-mono font-medium text-ink-primary">Event Stream</h1>
-          <p className="text-xs font-mono text-ink-secondary mt-0.5">
-            proj_careeeros — refreshes every 30s
+          <h1 className="text-xl font-sans font-semibold text-ink-primary tracking-tight">Event Stream</h1>
+          <p className="text-xs font-mono text-ink-muted mt-1">
+            proj_careeeros · refreshes every 30s
           </p>
         </div>
         <EventsTable />

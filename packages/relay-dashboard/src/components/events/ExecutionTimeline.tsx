@@ -29,13 +29,13 @@ export function ExecutionTimeline({ executions }: ExecutionTimelineProps) {
           ? 'bg-success'
           : isFailed
           ? 'bg-danger'
-          : 'bg-cyan-accent';
+          : 'bg-amber-accent';
 
         const dotGlow = isCompleted
-          ? '0 0 6px rgba(16,185,129,0.7)'
+          ? '0 0 5px rgba(90,158,111,0.55)'
           : isFailed
-          ? '0 0 6px rgba(244,63,94,0.7)'
-          : '0 0 6px rgba(6,182,212,0.7)';
+          ? '0 0 5px rgba(212,88,72,0.55)'
+          : '0 0 5px rgba(201,146,74,0.55)';
 
         return (
           <motion.div

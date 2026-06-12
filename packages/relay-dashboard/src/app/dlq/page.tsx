@@ -31,11 +31,11 @@ export default async function DlqPage() {
         {/* Header — weight of the count in the heading when populated */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-sm font-mono text-ink-secondary uppercase tracking-widest">
+            <h1 className="text-xl font-sans font-semibold text-ink-primary tracking-tight">
               Dead Letter Queue
             </h1>
             {hasEvents && (
-              <p className="text-xs font-mono text-warning mt-0.5">
+              <p className="text-xs font-mono text-warning mt-1">
                 {count} event{count !== 1 ? 's' : ''} requiring attention
               </p>
             )}
