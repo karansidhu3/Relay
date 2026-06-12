@@ -10,37 +10,41 @@ const config: Config = {
     extend: {
       colors: {
         bg: {
-          root: '#060810',
-          surface: '#0c1021',
-          hover: '#111827',
+          root: '#131210',
+          surface: '#1a1815',
+          elevated: '#221f1a',
+          hover: '#201d18',
         },
         border: {
-          base: '#1a2035',
-          hover: '#263050',
+          base: '#2a2520',
+          hover: '#3a3028',
+          subtle: '#1f1c18',
         },
         ink: {
-          primary: '#e2e8f0',
-          secondary: '#64748b',
-          muted: '#334155',
+          primary: '#f2ede6',
+          secondary: '#8a7e71',
+          muted: '#4a4035',
+          faint: '#2e2a24',
         },
-        cyan: {
-          accent: '#06b6d4',
-          dim: 'rgba(6,182,212,0.12)',
+        amber: {
+          accent: '#c9924a',
+          dim: 'rgba(201,146,74,0.10)',
+          glow: 'rgba(201,146,74,0.05)',
         },
         success: {
-          DEFAULT: '#10b981',
-          dim: 'rgba(16,185,129,0.12)',
+          DEFAULT: '#5a9e6f',
+          dim: 'rgba(90,158,111,0.12)',
         },
         danger: {
-          DEFAULT: '#f43f5e',
-          dim: 'rgba(244,63,94,0.12)',
+          DEFAULT: '#d45848',
+          dim: 'rgba(212,88,72,0.12)',
         },
         warning: {
-          DEFAULT: '#f59e0b',
-          dim: 'rgba(245,158,11,0.12)',
+          DEFAULT: '#e6a020',
+          dim: 'rgba(230,160,32,0.12)',
         },
         neutral: {
-          dim: 'rgba(100,116,139,0.12)',
+          dim: 'rgba(138,126,113,0.10)',
         },
       },
       fontFamily: {
@@ -51,8 +55,8 @@ const config: Config = {
         '2xs': ['0.65rem', { lineHeight: '1rem' }],
       },
       boxShadow: {
-        surface: '0 0 0 1px #1a2035',
-        glow: '0 0 8px 0',
+        surface: '0 0 0 1px #2a2520',
+        float: '0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px #2a2520',
       },
     },
   },
