@@ -6,13 +6,18 @@ import type {
   PublishBatchResult,
 } from './types';
 
-const DEFAULT_BASE_URL = 'https://api.relay.example.com/prod';
+const DEFAULT_BASE_URL = 'https://eba0ihdlc2.execute-api.us-east-1.amazonaws.com/prod';
 const MAX_BATCH_SIZE = 25;
+const MAX_RETRY_ATTEMPTS = 3;
 
 interface ApiEnvelope<T> {
   success: boolean;
   data?: T;
   error?: { code: string; message: string };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class RelayClient {
@@ -55,6 +60,7 @@ export class RelayClient {
     method: string,
     path: string,
     body?: Record<string, unknown>,
+    attempt = 1,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, {
@@ -67,15 +73,26 @@ export class RelayClient {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
+    // Retry on 429 with backoff respecting Retry-After header
+    if (response.status === 429 && attempt < MAX_RETRY_ATTEMPTS) {
+      const retryAfterHeader = response.headers.get('retry-after');
+      const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 0;
+      const backoffMs = Math.max(retryAfterSeconds * 1000, Math.pow(2, attempt) * 250);
+      await sleep(backoffMs);
+      return this.request<T>(method, path, body, attempt + 1);
+    }
+
     const envelope = (await response.json()) as ApiEnvelope<T>;
 
     if (!response.ok || !envelope.success) {
       const err = new Error(envelope.error?.message ?? 'Relay API error') as Error & {
         code: string;
         statusCode: number;
+        attempt: number;
       };
       err.code = envelope.error?.code ?? 'UNKNOWN_ERROR';
       err.statusCode = response.status;
+      err.attempt = attempt;
       throw err;
     }
 

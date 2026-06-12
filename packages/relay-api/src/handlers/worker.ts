@@ -15,9 +15,9 @@ import { changeMessageVisibility } from '../services/sqs';
 import { getPayload } from '../services/s3';
 import { EVENT_STATUS, EXECUTION_STATUS, ERROR_TYPE } from '../types/relay';
 import type { RelaySQSMessage, RelayExecution, WorkflowContext } from '../types/relay';
-import { handleCareerJobScoringRequested, handleCareerDocumentGenerationRequested, handleCareerDigestDispatchScheduled } from '../workflows/career';
-import { handleMarketmindCorpusIngestionStarted, handleMarketmindAnalysisRequested } from '../workflows/marketmind';
-import { handleTimekeepClockeventRecorded, handleTimekeepNotificationDispatchRequested } from '../workflows/timekeep';
+import { handleCareerJobIngested, handleCareerJobScoringRequested, handleCareerDocumentGenerationRequested, handleCareerDigestDispatchScheduled } from '../workflows/career';
+import { handleMarketmindCorpusIngestionStarted, handleMarketmindEmbeddingPipelineRequested, handleMarketmindSignalGenerationRequested } from '../workflows/marketmind';
+import { handleTimekeepClockeventRecorded, handleTimekeepPayrollExportRequested, handleTimekeepNotificationDispatchRequested } from '../workflows/timekeep';
 
 const config = {
   mainQueueUrl: getRequiredEnv('MAIN_QUEUE_URL'),
@@ -26,12 +26,15 @@ const config = {
 type WorkflowHandler = (ctx: WorkflowContext) => Promise<Record<string, unknown>>;
 
 const WORKFLOW_HANDLERS: Record<string, WorkflowHandler> = {
+  'career.job.ingested': handleCareerJobIngested,
   'career.job.scoring.requested': handleCareerJobScoringRequested,
   'career.document.generation.requested': handleCareerDocumentGenerationRequested,
   'career.digest.dispatch.scheduled': handleCareerDigestDispatchScheduled,
   'marketmind.corpus.ingestion.started': handleMarketmindCorpusIngestionStarted,
-  'marketmind.analysis.requested': handleMarketmindAnalysisRequested,
+  'marketmind.embedding.pipeline.requested': handleMarketmindEmbeddingPipelineRequested,
+  'marketmind.signal.generation.requested': handleMarketmindSignalGenerationRequested,
   'timekeep.clockevent.recorded': handleTimekeepClockeventRecorded,
+  'timekeep.payroll.export.requested': handleTimekeepPayrollExportRequested,
   'timekeep.notification.dispatch.requested': handleTimekeepNotificationDispatchRequested,
 };
 
