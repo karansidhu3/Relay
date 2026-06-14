@@ -51,5 +51,13 @@ jobs:
         working-directory: infrastructure
 
       - name: Deploy
-        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+        run: |
+          sam deploy \
+            --stack-name relay-prod \
+            --s3-bucket relay-sam-artifacts-412381763009 \
+            --s3-prefix relay \
+            --region us-east-1 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
         working-directory: infrastructure
