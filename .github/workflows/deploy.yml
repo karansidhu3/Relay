@@ -51,5 +51,5 @@ jobs:
         working-directory: infrastructure
 
       - name: Deploy
-        run: sam deploy --no-confirm-changeset
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
         working-directory: infrastructure
